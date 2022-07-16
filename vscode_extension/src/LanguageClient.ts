@@ -269,7 +269,7 @@ export default class SorbetLanguageClient implements ErrorHandler {
     ] = this._sorbetExtensionConfig.activeLspConfig!.command;
     this._outputChannel.appendLine(`    ${command} ${args.join(" ")}`);
     this._sorbetProcess = spawn(command, args, {
-      cwd: workspace.rootPath,
+      cwd: this._sorbetExtensionConfig.activeLspConfig!.cwd || workspace.rootPath,
     });
     const onExit = (err?: NodeJS.ErrnoException) => {
       if (
