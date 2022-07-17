@@ -7,6 +7,7 @@ import {
   env as vscodeEnv,
   Uri,
   Position,
+  window,
 } from "vscode";
 import {
   LanguageClient,
@@ -18,6 +19,7 @@ import {
   TextDocumentPositionParams,
 } from "vscode-languageclient/node";
 
+import * as fs from "fs";
 import { stopProcess } from "./connections";
 import { SorbetExtensionConfig } from "./config";
 import { ServerStatus, RestartReason } from "./types";
@@ -89,6 +91,7 @@ export default class SorbetLanguageClient implements ErrorHandler {
 
   // Contains the Sorbet process.
   private _sorbetProcess: ChildProcess | null = null;
+  private _sorbetProcessCwd: string = "";
 
   // Tracks disposable subscriptions so we can clean them up when language client is disposed.
   private _subscriptions: { dispose: () => void }[] = [];
@@ -257,6 +260,17 @@ export default class SorbetLanguageClient implements ErrorHandler {
     }
   }
 
+  private _findSorbetProcessCwd(): string {
+    const currentFile =
+      window.activeTextEditor?.document.uri.fsPath || workspace.rootPath || "";
+    const directory = currentFile.split("/");
+    while (directory.length > 0 && directory.join("/") !== workspace.rootPath) {
+      directory.pop();
+      if (fs.existsSync(`${directory?.join("/")}/sorbet`)) break;
+    }
+    return directory.join("/");
+  }
+
   /**
    * Runs a Sorbet process using the current active configuration. Debounced so that it runs Sorbet at most every 3 seconds.
    */
@@ -267,10 +281,25 @@ export default class SorbetLanguageClient implements ErrorHandler {
       command,
       ...args
     ] = this._sorbetExtensionConfig.activeLspConfig!.command;
+
     this._outputChannel.appendLine(`    ${command} ${args.join(" ")}`);
+
+    this._sorbetProcessCwd = this._findSorbetProcessCwd();
+    this._outputChannel.appendLine(
+      `Current working directory is : ${this._sorbetProcessCwd}`,
+    );
+
     this._sorbetProcess = spawn(command, args, {
-      cwd: this._sorbetExtensionConfig.activeLspConfig!.cwd || workspace.rootPath,
+      cwd: this._sorbetProcessCwd,
     });
+
+    window.onDidChangeActiveTextEditor(() => {
+      const sorbetCwd = this._findSorbetProcessCwd();
+      if (this._sorbetProcessCwd !== sorbetCwd) {
+        this._sorbetProcess?.kill();
+      }
+    });
+
     const onExit = (err?: NodeJS.ErrnoException) => {
       if (
         err &&
